@@ -9,10 +9,13 @@ name: Release
 #             configured on npmjs.com for repo DHEBP/dero-mcp-server + release.yml)
 #   registry→ mcp-publisher publish via github-oidc (keyless)
 #   deploy  → ssh to the VPS, pin DERO_MCP_VERSION to this release, redeploy
-#   release → GitHub Release with the CHANGELOG section as notes
+#   probe   → verify both legacy and 2026 clients against mcp.derod.org
+#   release → GitHub Release + runtime-derived MCP surface manifest
+#   docs    → dispatch the verified release to dero-docs with a GitHub App
 #
 # Auth model: OIDC everywhere except the VPS (SSH key secrets, unavoidable).
-# Required repo secrets: DEPLOY_HOST, DEPLOY_USER, DEPLOY_KEY, DEPLOY_PORT.
+# Required repo secrets: DEPLOY_HOST, DEPLOY_USER, DEPLOY_KEY, DEPLOY_PORT,
+#   MCP_SYNC_APP_PRIVATE_KEY. Required repo variable: MCP_SYNC_APP_ID.
 # One-time npmjs.com setup: package access → trusted publisher → GitHub Actions,
 #   owner dhebp, repo dero-mcp-server, workflow release.yml.
 
@@ -54,6 +57,19 @@ jobs:
       - run: npx tsc --noEmit
 
       - run: npm run build
+
+      - name: Export runtime MCP surface
+        env:
+          MCP_RELEASE_TAG: ${{ github.ref_name }}
+          MCP_SOURCE_SHA: ${{ github.sha }}
+        run: npm run --silent export:surface > mcp-surface.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mcp-surface
+          path: mcp-surface.json
+          if-no-files-found: error
+          retention-days: 7
 
       - run: npm run check:mcp-descriptions
       - run: npm run check:citations
@@ -219,14 +235,37 @@ jobs:
         env:
           GITHUB_REF_NAME: ${{ github.ref_name }}
 
+  # ── Hosted verification: publishing and the VPS deploy are not enough.
+  #    Exercise the public route with both supported protocol eras before a
+  #    release is announced or downstream docs are changed.
+  verify-hosted:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+      - run: npm ci
+      - name: Probe mcp.derod.org
+        env:
+          DERO_MCP_BASE_URL: https://mcp.derod.org
+          DERO_MCP_EXPECT_VERSION: ${{ github.ref_name }}
+        run: |
+          DERO_MCP_EXPECT_VERSION="${DERO_MCP_EXPECT_VERSION#v}" npm run smoke:hosted
+
   # ── GitHub Release: cut from the tag, notes pulled from CHANGELOG.md.
   github-release:
-    needs: [npm-publish, registry-publish, deploy]
+    needs: [npm-publish, registry-publish, deploy, verify-hosted]
     runs-on: ubuntu-latest
     permissions:
       contents: write   # create the release
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: mcp-surface
       - name: Extract this version's CHANGELOG section
         id: notes
         run: |
@@ -252,4 +291,31 @@ jobs:
         run: |
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
-            --notes-file RELEASE_NOTES.md
+            --notes-file RELEASE_NOTES.md \
+            mcp-surface.json
+
+  # ── Docs sync: a narrowly installed GitHub App issues a short-lived token.
+  #    dero-docs validates the release asset and opens a reviewable PR.
+  docs-sync-dispatch:
+    needs: github-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint dero-docs token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.MCP_SYNC_APP_ID }}
+          private-key: ${{ secrets.MCP_SYNC_APP_PRIVATE_KEY }}
+          owner: DHEBP
+          repositories: dero-docs
+      - name: Notify dero-docs
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          jq -n \
+            --arg tag "$RELEASE_TAG" \
+            --arg source_sha "$SOURCE_SHA" \
+            '{event_type:"mcp-release-published",client_payload:{tag:$tag,source_sha:$source_sha,asset_name:"mcp-surface.json"}}' \
+          | gh api --method POST repos/DHEBP/dero-docs/dispatches --input -

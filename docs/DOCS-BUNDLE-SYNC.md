@@ -20,6 +20,7 @@ vs. manual, the secrets involved, and how to recover when something breaks.
 | Rebuild index, commit to main | ✅ | `refresh-docs-bundle.yml` (here) clones dero-docs, runs `build:docs` + `smoke:docs`, commits `data/docs-index.json` to main |
 | Bump version + CHANGELOG + tag | ❌ manual | `npm run release:docs` (see below) or by hand |
 | npm publish + MCP registry + VPS redeploy | ✅ | `release.yml` on the `v*` tag |
+| Verify hosted MCP + sync public discovery docs | ✅ | `release.yml` probes both protocol eras, publishes `mcp-surface.json`, then a GitHub App dispatches to dero-docs |
 
 **Key fact:** a docs edit does **not** reach `mcp.derod.org` until a release is
 cut. The live container installs `dero-mcp-server@<version>` from npm, so docs
@@ -30,14 +31,20 @@ pinned, provenanced snapshot and the VPS stays deterministic.
 
 | Secret | Lives on | Purpose | Notes |
 |--------|----------|---------|-------|
-| `MCP_DOCS_SYNC_TOKEN` | **dero-docs** repo | lets dero-docs dispatch the `dero-docs-updated` event to this repo | A GitHub PAT. **PATs can expire** — if the auto-sync stops opening PRs, check this first. |
 | npm trusted publisher | npmjs.com | keyless OIDC publish | configured for `DHEBP/dero-mcp-server` + workflow `release.yml`; no token stored |
 | `DEPLOY_HOST/USER/KEY/PORT` | this repo | SSH to the VPS for redeploy | dedicated ed25519 key |
+| `MCP_SYNC_APP_PRIVATE_KEY` | both repos | mints short-lived cross-repo automation tokens | GitHub App private key; never a personal token |
+| `MCP_SYNC_APP_ID` | both repos | identifies the sync App | Actions variable, not a secret |
+
+The sync App must be installed only on `DHEBP/dero-mcp-server` and
+`DHEBP/dero-docs`, with **Contents: read/write** and **Pull requests:
+read/write**. The docs receiver always opens a PR; it never merges one.
 
 ## Manual recovery
 
 **Auto-sync didn't update the index after a docs change:**
-1. Check `MCP_DOCS_SYNC_TOKEN` on dero-docs hasn't expired (`gh secret list -R DHEBP/dero-docs`).
+1. Check that the sync GitHub App is installed on both repos and that
+   `MCP_SYNC_APP_ID` / `MCP_SYNC_APP_PRIVATE_KEY` are configured.
 2. Manually trigger: Actions → "Refresh docs bundle" → Run workflow (Level 2), or
    `gh workflow run refresh-docs-bundle.yml -f dero_docs_ref=main`.
 
