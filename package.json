@@ -27,7 +27,7 @@
     "build:docs": "npx tsx scripts/build-docs-index.ts",
     "test": "npm run verify:offline",
     "verify:offline": "npm run typecheck && npm run build && npm run check:server-json && npm run check:mcp-descriptions && npm run check:citations && npm run check:curve-fixtures && npm run check:proof-roundtrip && npm run check:tx-parse && npm run check:tela-parse && npm run check:gnomon && npm run check:forge-demo && npm run check:verify-supply && npm run check:docs-ranking && npm run check:content-hardening && npm run check:skill-behavior && npm run smoke:docs && npm run smoke:mcp && npm run smoke:http && npm run smoke:package && npm audit --omit=dev --audit-level=moderate",
-    "verify:live": "npm run test:flows && npm run test:composites",
+    "verify:live": "npm run build && npm run test:flows && npm run test:composites",
     "release:docs-check": "npm run build:docs && npm run verify:offline",
     "release:docs": "npx tsx scripts/release-docs.ts",
     "start": "node dist/index.js",

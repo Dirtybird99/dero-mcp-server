@@ -36,7 +36,7 @@ const NONEXISTENT_TX_HASH =
   'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
 
 function parseArgs(argv: string[]): string {
-  let daemonUrl = process.env.DERO_DAEMON_URL ?? DEFAULT_DAEMON_URL
+  let daemonUrl = process.env.DERO_DAEMON_URL || DEFAULT_DAEMON_URL
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if ((arg === '--daemon-url' || arg === '--url') && argv[i + 1]) {
