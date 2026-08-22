@@ -2,8 +2,8 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.DHEBP/dero-mcp-server",
   "title": "DERO MCP Server",
-  "description": "Read-only DERO blockchain MCP: 33 tools (12 composites) incl. TELA discovery + bundled docs.",
-  "version": "0.6.0",
+  "description": "Read-only DERO MCP: 34 tools (12 composites), 8 resources, 5 prompts, 4 Skills-over-MCP runbooks.",
+  "version": "0.7.0",
   "websiteUrl": "https://derod.org",
   "repository": {
     "url": "https://github.com/DHEBP/dero-mcp-server",
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "dero-mcp-server",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "transport": {
         "type": "stdio"
       }

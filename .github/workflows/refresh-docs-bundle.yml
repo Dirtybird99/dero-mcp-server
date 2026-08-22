@@ -26,18 +26,23 @@ jobs:
     steps:
       - name: Resolve dero-docs ref
         id: meta
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_REF: ${{ github.event.client_payload.ref }}
+          MANUAL_REF: ${{ inputs.dero_docs_ref }}
         run: |
-          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
-            REF="${{ github.event.client_payload.ref }}"
+          if [ "$EVENT_NAME" = "repository_dispatch" ]; then
+            REF="$DISPATCH_REF"
             if [ -z "$REF" ]; then REF="main"; fi
             SOURCE="dero-docs push (${REF})"
           else
-            REF="${{ inputs.dero_docs_ref }}"
+            REF="$MANUAL_REF"
             if [ -z "$REF" ]; then REF="main"; fi
             SOURCE="manual workflow_dispatch (${REF})"
           fi
-          echo "ref=$REF" >> "$GITHUB_OUTPUT"
-          echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
+          git check-ref-format --allow-onelevel "$REF" >/dev/null || { echo "::error::Invalid dero-docs ref"; exit 1; }
+          printf 'ref=%s\n' "$REF" >> "$GITHUB_OUTPUT"
+          printf 'source=%s\n' "$SOURCE" >> "$GITHUB_OUTPUT"
 
       - name: Checkout dero-mcp-server
         uses: actions/checkout@v4
@@ -70,10 +75,13 @@ jobs:
 
       - name: Smoke test bundled docs
         working-directory: dero-mcp-server
-        run: npm run build && npm run smoke:docs
+        run: npm run build && npm run smoke:docs && npm run check:server-json
 
       - name: Commit refreshed index to main
         working-directory: dero-mcp-server
+        env:
+          DOCS_REF: ${{ steps.meta.outputs.ref }}
+          DOCS_SOURCE: ${{ steps.meta.outputs.source }}
         run: |
           if git diff --quiet -- data/docs-index.json; then
             echo "Docs index unchanged — nothing to commit."
@@ -90,15 +98,15 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/docs-index.json
-          git commit -m "chore(docs): refresh bundled docs index from dero-docs (${{ steps.meta.outputs.ref }})"
+          git commit -m "chore(docs): refresh bundled docs index from dero-docs (${DOCS_REF})"
           git push origin HEAD:main
           {
             echo "## ✅ Docs bundle refreshed on main"
             echo ""
-            echo "**Source:** ${{ steps.meta.outputs.source }}"
+            echo "**Source:** ${DOCS_SOURCE}"
             echo ""
-            echo "The index reaches npm + mcp.derod.org only after a release:"
-            echo "bump the version, add a CHANGELOG line, then \`git tag vX.Y.Z && git push --tags\`."
+            echo "The index reaches npm + mcp.derod.org only after a release."
+            echo "Run \`npm run release:docs\` from a clean, synced local main branch."
             echo "See \`docs/DOCS-BUNDLE-SYNC.md\`."
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -106,13 +114,17 @@ jobs:
       # tells you WHAT broke + links the run so the email is actionable.
       - name: Report failure
         if: failure()
+        env:
+          DOCS_REF: ${{ steps.meta.outputs.ref }}
+          DOCS_SOURCE: ${{ steps.meta.outputs.source }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           {
             echo "## ❌ Docs bundle refresh failed"
             echo ""
-            echo "**Source:** ${{ steps.meta.outputs.source }}"
-            echo "**dero-docs ref:** \`${{ steps.meta.outputs.ref }}\`"
-            echo "**Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "**Source:** ${DOCS_SOURCE:-unresolved}"
+            echo "**dero-docs ref:** \`${DOCS_REF:-unresolved}\`"
+            echo "**Run:** ${RUN_URL}"
             echo ""
             echo "The bundled docs index was NOT updated. Likely causes:"
             echo "- \`build:docs\` failed (dero-docs structure changed, or a parser error)"

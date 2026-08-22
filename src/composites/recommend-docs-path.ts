@@ -76,7 +76,7 @@ export const recommendDocsPathInputSchema = {
     .min(1)
     .max(5)
     .optional()
-    .describe('Cap per-product search results before merging. Default 2.'),
+    .describe('Cap per-product search results before merging. Default 4.'),
 } as const
 
 type RecommendInput = {
@@ -133,6 +133,7 @@ export function rankRecommendations(
 
   for (const [product, hits] of hitsByProduct) {
     for (const hit of hits) {
+      if (!hit.slug.trim()) continue
       const key = `${product}::${hit.slug}`
       if (seen.has(key)) continue
       seen.add(key)

@@ -13,6 +13,7 @@ import {
   resolveDeroDocsRoot,
   tokenizeForSearch,
 } from './docs-parse.js'
+import { paginateUtf8Content } from './content-pagination.js'
 
 export { DERO_DOC_PRODUCTS, type DeroDocProduct, resolveDeroDocsRoot } from './docs-parse.js'
 
@@ -114,7 +115,7 @@ type SearchArgs = {
 // from the existing index fields — NO index-format change — and cached
 // alongside the pages so the ~80ms build cost is paid once per cache window.
 //
-// Parameters are tuned by empirical sweep against the bundled 147-page corpus
+// Parameters are tuned by empirical sweep against the bundled 154-page corpus
 // and the 6 confirmed failure cases, then frozen. They are CI-guarded by
 // scripts/check-docs-ranking.ts — do NOT tune any constant here without
 // re-running `npm run check:docs-ranking`.
@@ -132,7 +133,7 @@ const FIELD_BOOST: Record<SearchField, number> = {
   body: 1,
 }
 
-// Per-field length-normalization strength. b_body=0.7 crushes the 75k-char
+// Per-field length-normalization strength. b_body=0.7 crushes the large
 // Captain archive's substring advantage; short fields barely vary so they get
 // light normalization (heavy norm there only adds noise).
 const FIELD_B: Record<SearchField, number> = {
@@ -392,7 +393,7 @@ export async function searchDeroDocs(args: SearchArgs) {
   }
 }
 
-// Per-call content cap. Long pages (e.g. /captain at ~75k chars) need to be
+// Per-call content cap. Long pages (e.g. /captain at ~75k UTF-8 bytes) need to be
 // fetched in slices to stay LLM-context-friendly; callers paginate via offset
 // using `content_truncated` + `next_offset` in the response.
 const PAGE_CONTENT_CHUNK = 60000
@@ -419,10 +420,7 @@ export async function getDeroDocPage(params: {
     )
   }
 
-  const total = target.plainText.length
-  const offset = Math.max(0, Math.min(params.offset ?? 0, total))
-  const end = Math.min(offset + PAGE_CONTENT_CHUNK, total)
-  const truncated = end < total
+  const page = paginateUtf8Content(target.plainText, params.offset ?? 0, PAGE_CONTENT_CHUNK)
 
   return {
     ...sourceMeta(source),
@@ -433,11 +431,7 @@ export async function getDeroDocPage(params: {
     canonical_url: target.canonicalUrl,
     last_updated: target.lastUpdated,
     headings: target.headings,
-    content: target.plainText.slice(offset, end),
-    content_offset: offset,
-    content_length: total,
-    content_truncated: truncated,
-    next_offset: truncated ? end : null,
+    ...page,
     source_path: target.sourcePath,
   }
 }

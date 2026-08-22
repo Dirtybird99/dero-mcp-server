@@ -4,6 +4,48 @@ All notable changes to `dero-mcp-server` are documented here. This project
 follows [Keep a Changelog](https://keepachangelog.com/) and
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.0]
+
+### Added
+- Four focused product skills (`dero`, `tela`, `hologram`, and `deropay`),
+  exposed through the draft SEP-2640 `skills/list` and `skills/get` methods and
+  ordinary `skill://<name>/SKILL.md` resources.
+- `read_dero_skill`, a single read-only compatibility tool for MCP clients that
+  do not yet implement the skills extension.
+
+### Changed
+- The npm package now ships the canonical `skills/` directory. The root
+  `SKILL.md` is a compatibility index rather than a duplicate runbook.
+- Modern skill-list responses advertise five-minute public-cache metadata;
+  skill reads remain uncached. Skill manifests, URIs, and custom request
+  schemas are validated strictly.
+- Server metadata now discloses daemon provenance and privacy implications.
+  HTTP bearer comparisons hash inputs before constant-time comparison.
+- HTTP mode validates `Host` and browser `Origin` before routing. Non-loopback
+  binds require a lowercase hostname allowlist; optional browser origins use a
+  separate hostname-only allowlist, with an empty list rejecting present
+  `Origin` headers.
+- Daemon URLs now preserve query parameters when constructing `/json_rpc`,
+  reject URL userinfo credentials, and redact query values from logs,
+  `/health`, server-info, and privacy notices.
+- Documentation pagination is UTF-8 byte-safe, and TELA decompression is
+  capped at 8 MiB with a safe raw-content fallback.
+- Release metadata guards now cover the lockfile, visible README version,
+  newest changelog section, all server version literals, and the 154-page
+  bundled MCP overview.
+
+### Tests
+- Stdio and HTTP smoke probes cover skill capability discovery, manifests,
+  resource bytes and digests, the compatibility loader, strict raw-wire
+  requests, malformed metadata, authentication variants, concurrency, and
+  reconnects.
+- Content checks cover exact byte boundaries, mid-codepoint offsets,
+  reconstruction, invalid/oversized gzip, skill routing, privacy consent, and
+  wallet-recovery secret handling.
+- A tarball smoke test installs the packed artifact under a path containing
+  spaces, launches it from a foreign working directory, and verifies both MCP
+  protocol eras against the package-relative skills and docs assets.
+
 ## [0.6.0]
 
 ### Added

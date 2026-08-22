@@ -20,6 +20,15 @@
  */
 
 export const TOOL_DESCRIPTIONS = {
+  read_dero_skill: `Load one canonical DERO product skill as Markdown for MCP clients that do not support the native skills extension. Route chain state, transactions, DVM contracts, supply, proofs, and generic wallet docs to \`dero\`; dURLs, TELA manifests, and on-chain files to \`tela\`; the Hologram browser, built-in wallet, Studio, and simulator to \`hologram\`; and DeroPay, DeroAuth, checkout, routing, and escrow to \`deropay\`.
+
+When to call: when a task needs one of those workflows and the host has not already loaded the matching skill through skills/list and resources/read. Load every relevant skill for a mixed request. Do not call for a simple one-tool query that needs no workflow guidance.
+
+Input Requirements (CRITICAL):
+- \`name\` MUST be exactly one of \`dero | tela | hologram | deropay\`.
+
+Output: the exact canonical SKILL.md text for the selected product. Follow its routing, documentation, safety, and citation instructions.`,
+
   dero_daemon_ping: `DERO daemon connectivity check via DERO.Ping.
 
 When to call: as the first step in any chain investigation to confirm the daemon is reachable. Call before dero_get_info if you are unsure whether DERO_DAEMON_URL is correctly configured.
@@ -183,7 +192,7 @@ Input Requirements (CRITICAL):
 
 Output: block template payload suitable for a mining client. Does NOT submit a block; submission requires the excluded DERO.SubmitBlock method.`,
 
-  dero_docs_search: `Search the bundled DERO documentation index across derod, tela, hologram, and deropay (145+ pages). In-process — no network round trip.
+  dero_docs_search: `Search the 154-page bundled DERO documentation index across derod, tela, hologram, and deropay. In-process — no network round trip.
 
 When to call: when you need authoritative docs to answer a DERO question, OR before constructing a citation in your response. Call this BEFORE explaining DVM, RPC methods, TELA contracts, Hologram simulator, or DeroPay webhooks. PREFER returning the top match's \`canonical_url\` and \`slug\` to the user as a citation.
 
@@ -202,9 +211,9 @@ When to call: AFTER dero_docs_search has returned a candidate slug, OR when you 
 Input Requirements (CRITICAL):
 - \`slug\` MUST be a non-empty doc slug relative to pages/ (e.g. \`rpc-api/daemon-rpc-api\`, \`tutorials/first-app\`, \`dero-pay/quick-start\`).
 - \`product\` is OPTIONAL but RECOMMENDED to disambiguate identical slugs across docs sites (\`derod\`, \`tela\`, \`hologram\`, \`deropay\`).
-- \`offset\` is OPTIONAL. Long pages (the Captain archive, deep RPC references) are returned in 60000-char chunks; if \`content_truncated\` is true in the response, call again with \`offset: next_offset\` to fetch the next chunk.
+- \`offset\` is OPTIONAL. It is a UTF-8 byte offset. Long pages are returned in chunks of at most 60000 bytes without splitting a code point; if \`content_truncated\` is true, call again with \`offset: next_offset\`.
 
-Output: \`{ product, slug, title, headings, content, content_offset, content_length, content_truncated, next_offset, canonical_url, last_updated, source_path }\`. \`content_length\` is the total page size; \`content_truncated\` + \`next_offset\` signal whether to paginate.`,
+Output: \`{ product, slug, title, headings, content, content_offset, content_length, content_truncated, next_offset, canonical_url, last_updated, source_path }\`. Offsets and \`content_length\` are UTF-8 bytes; \`content_truncated\` + \`next_offset\` signal whether to paginate.`,
 
   dero_docs_list: `List indexed bundled docs pages across all four products with slugs, titles, and canonical URLs.
 
@@ -245,7 +254,7 @@ When to call: at the START of any "where do I read about X?" or "which docs cove
 Input Requirements:
 - \`intent\` is REQUIRED. Free-text description of what the user is trying to do (min 8 chars). Drop verbs and use product nouns like "deploy a TELA app" or "verify a DeroPay webhook signature" for best results.
 - \`product_hint\` is OPTIONAL. One of \`derod | tela | hologram | deropay\`. Multiplies hint-product scores by 1.5×.
-- \`limit_per_product\` is OPTIONAL (default 2, max 5). Cap per-product hits before merging.
+- \`limit_per_product\` is OPTIONAL (default 4, max 5). Cap per-product hits before merging.
 
 Output: \`{ intent, product_hint, limit_per_product, recommended: [{ product, slug, title, canonical_url, score, boosted_score, rationale }], by_product: { derod | tela | hologram | deropay: { count, top_slug, top_score } }, related_docs: DeroCitation[] }\`. \`related_docs\` is the top-2 picks pre-built as citations the agent can drop straight into a response. On zero matches across every product the composite returns a structured \`_meta.error\` with code \`NO_DOCS_MATCH\` and a hint to rephrase or drop the product_hint.`,
 
@@ -278,7 +287,7 @@ Input Requirements:
 - \`offset\` is OPTIONAL. Byte offset into the extracted content; pass \`next_offset\` to read the next chunk of a large file.
 - \`topoheight\` is OPTIONAL. Omit for the latest committed state.
 
-Output: \`{ scid, topoheight, filename, doc_type, sub_dir, content_embedded, content, content_offset, content_length, content_truncated, next_offset, compressed, decompressed, stored_filename, signature, signature_note, note, narrative, related_docs }\`. \`content\` is the plaintext file (a 60000-char chunk; paginate via \`next_offset\`), or null when content is not embedded (DocShard/STATIC/external). \`compressed\` is true for \`.gz\` files; \`decompressed\` is true when this tool gunzipped them (\`filename\` then strips \`.gz\`; \`stored_filename\` keeps the on-chain name). The contract's author signature presence is reported but NOT cryptographically verified.`,
+Output: \`{ scid, topoheight, filename, doc_type, sub_dir, content_embedded, content, content_offset, content_length, content_truncated, next_offset, compressed, decompressed, decompression_limited, stored_filename, signature, signature_note, note, narrative, related_docs }\`. \`content\` is a plaintext chunk of at most 60000 UTF-8 bytes, or null when content is not embedded. Offsets and length are bytes. If gzip expansion exceeds 8 MiB, \`decompression_limited\` is true and \`content\` falls back to the raw on-chain base64 text. Signature presence is reported but not cryptographically verified.`,
 
   dero_durl_to_scid: `Composite: resolve a TELA dURL (e.g. "vault.tela") to its on-chain SCID(s) by discovering TELA apps directly from chain — no external Gnomon indexer required. TELA apps advertise a human-readable dURL; this finds the contract(s) that claim it.
 

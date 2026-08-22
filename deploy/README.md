@@ -29,6 +29,7 @@ It is **not the only way to run dero-mcp-server.** For local development, the np
 
 - Two containers (Caddy + the MCP server), one DERO daemon you provide.
 - Auto-TLS via Let's Encrypt.
+- Host-header and browser-Origin allowlists before MCP routing.
 - Optional bearer-token auth.
 - Stateless — no session storage, no in-memory state across requests.
 - Health endpoint at `/health` for monitoring.
@@ -63,6 +64,9 @@ $EDITOR .env
 #      ACME_EMAIL            (for Let's Encrypt failure alerts)
 #      DERO_DAEMON_URL       (see Prerequisites step 4)
 #      DERO_MCP_AUTH_TOKEN   (highly recommended; generate with `openssl rand -base64 48`)
+#    DOMAIN is also passed to the MCP process as DERO_MCP_ALLOWED_HOSTS.
+#    Optional browser clients: set DERO_MCP_ALLOWED_ORIGINS to a comma-separated
+#    list of lowercase hostnames (no schemes or ports).
 
 # 3. Bring it up.
 docker compose up -d --build
@@ -83,6 +87,14 @@ curl -X POST https://${DOMAIN}/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
 #    → SSE stream with the current tools/list result.
 ```
+
+Because the container binds to `0.0.0.0`, HTTP startup requires an allowed
+`Host` list. Compose supplies the lowercase `DOMAIN` value automatically. For a
+standalone container, set `DERO_MCP_ALLOWED_HOSTS` yourself to comma-separated
+lowercase hostnames without schemes or ports. `DERO_MCP_ALLOWED_ORIGINS` is a
+separate optional hostname-only list for browser clients; leaving it empty
+rejects every request that presents an `Origin` header while allowing clients
+that omit `Origin`.
 
 ---
 
@@ -194,7 +206,10 @@ This deployment ships with these defaults; understand them before exposing:
 - **Read-only MCP**: the `dero-mcp-server` package itself has no write tools. Even with no auth, an attacker cannot move funds or mutate chain state through it. The risk surface is: daemon RPC abuse (rate-exhausting the daemon) and information surface (every query reveals what the agent is curious about).
 - **Stateless container**: no session storage, no in-memory state across requests, no DB.
 - **No request-body logging by default.** Caddy logs status + path; we do not log the JSON-RPC payload. Operators who add their own logging should be deliberate.
+- **Daemon URL secrets stay out of disclosures.** `DERO_DAEMON_URL` supports query parameters, but rejects embedded URL userinfo. Query values are redacted from startup logs, `/health`, server-info, and privacy notices.
 - **No X-Forwarded-For honored.** The Caddyfile strips it on inbound to avoid log spoofing. Add it back only if you front this with a trusted proxy (Cloudflare, etc.).
+- **Host headers are allowlisted.** Compose passes `DOMAIN` as `DERO_MCP_ALLOWED_HOSTS`; malformed or unlisted hosts are rejected before MCP routing. Any standalone non-loopback bind must provide its own lowercase hostname-only list.
+- **Browser origins are deny-by-default.** `DERO_MCP_ALLOWED_ORIGINS` accepts lowercase hostnames only (no schemes or ports). When empty, a request with an `Origin` header is rejected; non-browser clients that omit it are unaffected.
 - **Auth is optional**. Setting `DERO_MCP_AUTH_TOKEN` requires `Authorization: Bearer ...` on every `/mcp` call. We recommend it strongly unless this is intentionally a public docs-only demo.
 - **No rate limiting in this template.** Caddy 2 has rate-limit modules; adding them is on the to-do list. Until then, abuse mitigation is "reverse-proxy via Cloudflare and use their rate limiting" or "rely on the daemon's own RPC rate limits."
 

@@ -1,7 +1,7 @@
 {
   "name": "dero-mcp-server",
   "mcpName": "io.github.DHEBP/dero-mcp-server",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Model Context Protocol (MCP) server exposing DERO Stargate daemon JSON-RPC and bundled documentation to Claude and other MCP clients",
   "type": "module",
   "license": "MIT",
@@ -15,6 +15,8 @@
   "files": [
     "dist",
     "data",
+    "docs/assets",
+    "skills",
     "README.md",
     "SKILL.md",
     "POSITIONING.md",
@@ -23,7 +25,10 @@
   "scripts": {
     "build": "tsc",
     "build:docs": "npx tsx scripts/build-docs-index.ts",
-    "release:docs-check": "npm run build:docs && npm run smoke:docs && npm run check:docs-ranking && npm run build",
+    "test": "npm run verify:offline",
+    "verify:offline": "npm run typecheck && npm run build && npm run check:server-json && npm run check:mcp-descriptions && npm run check:citations && npm run check:curve-fixtures && npm run check:proof-roundtrip && npm run check:tx-parse && npm run check:tela-parse && npm run check:gnomon && npm run check:forge-demo && npm run check:verify-supply && npm run check:docs-ranking && npm run check:content-hardening && npm run check:skill-behavior && npm run smoke:docs && npm run smoke:mcp && npm run smoke:http && npm run smoke:package && npm audit --omit=dev --audit-level=moderate",
+    "verify:live": "npm run test:flows && npm run test:composites",
+    "release:docs-check": "npm run build:docs && npm run verify:offline",
     "release:docs": "npx tsx scripts/release-docs.ts",
     "start": "node dist/index.js",
     "dev": "node --import tsx src/index.ts",
@@ -32,6 +37,7 @@
     "smoke:mcp": "npx tsx scripts/mcp-smoke-probes.ts",
     "smoke:docs": "npx tsx scripts/docs-smoke-probes.ts",
     "smoke:http": "npm run build && npx tsx scripts/http-smoke-probes.ts",
+    "smoke:package": "npx tsx scripts/package-smoke.ts",
     "test:flows": "npx tsx scripts/flow-test.ts",
     "test:composites": "npx tsx scripts/flow-composites.ts",
     "check:mcp-descriptions": "npx tsx scripts/check-mcp-descriptions.ts",
@@ -45,12 +51,15 @@
     "check:verify-supply": "npx tsx scripts/check-verify-supply.ts",
     "check:server-json": "npx tsx scripts/check-server-json.ts",
     "check:docs-ranking": "npx tsx scripts/check-docs-ranking.ts",
+    "check:content-hardening": "npx tsx scripts/check-content-hardening.ts",
+    "check:skill-behavior": "npx tsx scripts/check-skill-behavior.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@modelcontextprotocol/node": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
     "@noble/curves": "^2.2.0",
+    "hono": "^4.13.3",
     "zod": "^4.2.0"
   },
   "devDependencies": {

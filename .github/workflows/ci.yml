@@ -7,12 +7,12 @@ on:
     branches: [main, master]
 
 jobs:
-  build-and-test:
+  verify-offline:
     runs-on: ubuntu-latest
 
     strategy:
       matrix:
-        node-version: [20, 22]
+        node-version: [20, 22, 24]
 
     steps:
       - name: Checkout
@@ -27,48 +27,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build
-        run: npm run build
+      - name: Run offline release gate
+        run: npm run verify:offline
 
-      - name: Check MCP tool descriptions
-        run: npm run check:mcp-descriptions
-
-      - name: Check tool docs citations
-        run: npm run check:citations
-
-      - name: MCP smoke probes
-        run: npm run smoke:mcp
-        env:
-          DERO_DAEMON_URL: http://127.0.0.1:1
-
-      - name: HTTP smoke probes
-        run: npm run smoke:http
-
-      - name: Docs smoke probes
-        run: npm run smoke:docs
-
-      - name: Docs ranking guard (offline)
-        run: npm run check:docs-ranking
-
-      - name: TELA parser guard (offline)
-        run: npm run check:tela-parse
-
-      - name: Gnomon discovery guard (offline)
-        run: npm run check:gnomon
-
-      - name: Run flow tests
-        run: npm run test:flows
-        env:
-          # Uses default public RPC (82.65.143.182:10102)
-          # Override with repository secret if you have a dedicated test daemon
-          DERO_DAEMON_URL: ${{ secrets.DERO_DAEMON_URL || '' }}
-
-      - name: Run composite flow tests
-        run: npm run test:composites
-        env:
-          DERO_DAEMON_URL: ${{ secrets.DERO_DAEMON_URL || '' }}
-
-  typecheck:
+  verify-live:
+    needs: verify-offline
     runs-on: ubuntu-latest
 
     steps:
@@ -78,11 +41,32 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Typecheck
-        run: npx tsc --noEmit
+      - name: Run live daemon gate
+        run: npm run verify:live
+        env:
+          DERO_DAEMON_URL: ${{ secrets.DERO_DAEMON_URL || '' }}
+
+  package-smoke-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Pack, install, and run npm artifact
+        run: npm run smoke:package

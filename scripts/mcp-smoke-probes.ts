@@ -8,12 +8,22 @@
  * - resources/list count + URI parity
  * - prompts/list count + name parity
  * - prompts/get returns usable messages
+ * - Skills-over-MCP list/get/resources + fallback loader + parser guards
  * - structured tool error payload shape on execution failure
  */
 import { Client } from '@modelcontextprotocol/client'
+import { InMemoryTransport } from '@modelcontextprotocol/server'
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
-import { DERO_PROMPT_NAMES, DERO_RESOURCE_URIS } from '../src/server.js'
+import { z } from 'zod'
+import {
+  createDeroMcpServer,
+  DERO_PROMPT_NAMES,
+  DERO_RESOURCE_URIS,
+} from '../src/server.js'
+import { PUBLIC_DAEMON_BASE } from '../src/daemon-base.js'
+import { DERO_SKILL_URIS } from '../src/skills.js'
 import { DERO_TOOL_NAMES } from '../src/tool-descriptions.js'
+import { checkSkillParser, checkSkillsSurface } from './skill-smoke.js'
 
 const DEFAULT_DAEMON_URL = 'http://127.0.0.1:1'
 const NAME_REGISTRY_SCID = '0000000000000000000000000000000000000000000000000000000000000001'
@@ -91,6 +101,118 @@ function parseFirstTextJson(result: { content: Array<{ type: string; text?: stri
   }
 }
 
+const projectedSkillsListSchema = z.object({ skills: z.array(z.unknown()) }).passthrough()
+const projectedSkillGetSchema = z.object({ skill: z.unknown() }).passthrough()
+
+async function expectInvalidParams(label: string, request: () => Promise<unknown>): Promise<void> {
+  try {
+    await request()
+  } catch (error) {
+    if ((error as { code?: number }).code === -32602) return
+    throw new Error(`${label}: expected -32602, got ${String((error as { code?: unknown }).code)}`)
+  }
+  throw new Error(`${label}: expected -32602, request succeeded`)
+}
+
+async function expectUnknownResource(client: Client, label: string): Promise<void> {
+  const uri = 'dero://mcp/not-found'
+  try {
+    await client.readResource({ uri })
+  } catch (error) {
+    const protocolError = error as { code?: number; data?: Record<string, unknown> }
+    if (protocolError.code === -32602 && protocolError.data?.['uri'] === uri) return
+    throw new Error(
+      `${label}: expected -32602 with URI data, got ${String(protocolError.code)} ${JSON.stringify(protocolError.data)}`,
+    )
+  }
+  throw new Error(`${label}: unknown resources/read URI succeeded`)
+}
+
+async function checkSkillsParamValidation(
+  client: Client,
+  label: string,
+  era: 'legacy' | 'modern',
+): Promise<void> {
+  const omitted = await client.request({ method: 'skills/list' }, projectedSkillsListSchema)
+  if (omitted.skills.length !== 4) throw new Error(`${label}: omitted list params failed`)
+  if (era === 'modern') {
+    if (omitted['ttlMs'] !== 300_000 || omitted['cacheScope'] !== 'public') {
+      throw new Error(`${label}: SDK projection missing public 300000ms cache hint`)
+    }
+  } else if ('ttlMs' in omitted || 'cacheScope' in omitted) {
+    throw new Error(`${label}: legacy SDK projection included modern cache hints`)
+  }
+  const list = await client.request(
+    { method: 'skills/list', params: { _meta: { 'acme.example/probe': { ok: true } } } },
+    projectedSkillsListSchema,
+  )
+  if (list.skills.length !== 4) throw new Error(`${label}: namespaced _meta list failed`)
+
+  await expectInvalidParams(`${label} empty cursor`, () =>
+    client.request({ method: 'skills/list', params: { cursor: '' } }, projectedSkillsListSchema),
+  )
+  await expectInvalidParams(`${label} non-string cursor`, () =>
+    client.request({ method: 'skills/list', params: { cursor: 42 } }, projectedSkillsListSchema),
+  )
+  await expectInvalidParams(`${label} extra list param`, () =>
+    client.request(
+      { method: 'skills/list', params: { unexpected: true } },
+      projectedSkillsListSchema,
+    ),
+  )
+  await expectInvalidParams(`${label} empty skill URI`, () =>
+    client.request({ method: 'skills/get', params: { uri: '' } }, projectedSkillGetSchema),
+  )
+  await expectInvalidParams(`${label} non-string skill URI`, () =>
+    client.request({ method: 'skills/get', params: { uri: 42 } }, projectedSkillGetSchema),
+  )
+  await expectInvalidParams(`${label} noncanonical skill URI`, () =>
+    client.request(
+      { method: 'skills/get', params: { uri: 'DERO://skills/dero' } },
+      projectedSkillGetSchema,
+    ),
+  )
+  await expectInvalidParams(`${label} traversal skill URI`, () =>
+    client.request(
+      { method: 'skills/get', params: { uri: 'dero://skills/dero/../tela' } },
+      projectedSkillGetSchema,
+    ),
+  )
+  await expectInvalidParams(`${label} missing skill URI`, () =>
+    client.request({ method: 'skills/get', params: {} }, projectedSkillGetSchema),
+  )
+  await expectInvalidParams(`${label} extra get param`, () =>
+    client.request(
+      { method: 'skills/get', params: { uri: DERO_SKILL_URIS[0], unexpected: true } },
+      projectedSkillGetSchema,
+    ),
+  )
+  await expectUnknownResource(client, `${label} unknown resource`)
+}
+
+async function checkPublicFallbackPrivacy(): Promise<void> {
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+  const server = createDeroMcpServer(PUBLIC_DAEMON_BASE, { daemonSource: 'public' })
+  const client = new Client({ name: 'dero-public-privacy-smoke', version: '1.0.0' })
+  await server.connect(serverTransport)
+  try {
+    await client.connect(clientTransport)
+    const instructions = client.getInstructions() ?? ''
+    if (!/privacy/i.test(instructions) || !/public fallback/i.test(instructions)) {
+      throw new Error('public fallback instructions do not disclose privacy impact')
+    }
+    const info = await client.readResource({ uri: 'dero://mcp/server-info' })
+    const text = info.contents.find((content) => 'text' in content)?.text
+    const metadata = JSON.parse(String(text)) as Record<string, unknown>
+    if (metadata['daemon_source'] !== 'public' || typeof metadata['privacy_notice'] !== 'string') {
+      throw new Error('server-info does not expose public daemon source and privacy notice')
+    }
+  } finally {
+    await client.close()
+    await server.close()
+  }
+}
+
 async function checkModernStdio(daemonUrl: string): Promise<void> {
   const transport = new StdioClientTransport({
     command: 'node',
@@ -121,7 +243,10 @@ async function checkModernStdio(daemonUrl: string): Promise<void> {
     const prompts = await client.listPrompts()
     assertSortedEqual(prompts.prompts.map((prompt) => prompt.name), DERO_PROMPT_NAMES, 'modern prompts/list')
 
-    console.log(`OK  2026 stdio    ${tools.tools.length} tools · ${resources.resources.length} resources · ${prompts.prompts.length} prompts`)
+    await checkSkillsSurface(client, '2026 stdio')
+    await checkSkillsParamValidation(client, '2026 stdio', 'modern')
+
+    console.log(`OK  2026 stdio    ${tools.tools.length} tools · ${resources.resources.length} resources · ${prompts.prompts.length} prompts · 4 skills`)
   } finally {
     await client.close()
     await transport.close()
@@ -132,6 +257,12 @@ async function main() {
   const daemonUrl = parseArgs(process.argv.slice(2))
   console.log(`[smoke:mcp] daemon=${daemonUrl}`)
   console.log('================================')
+
+  checkSkillParser()
+  console.log('OK  skills/parser   canonical + strict frontmatter guards')
+
+  await checkPublicFallbackPrivacy()
+  console.log('OK  privacy         public fallback instructions + server-info disclosure')
 
   const transport = new StdioClientTransport({
     command: 'node',
@@ -203,6 +334,10 @@ async function main() {
       throw new Error('prompts/get estimate_deploy_for_contract rejected string include_breakdown')
     }
     console.log('OK  prompts/get     string-typed args coerce (number + boolean)')
+
+    await checkSkillsSurface(client, '2025 stdio')
+    await checkSkillsParamValidation(client, '2025 stdio', 'legacy')
+    console.log('OK  skills          native list/get/resources + fallback loader')
 
     const structuredErrorProbe = (await client.callTool({
       name: 'dero_get_block',

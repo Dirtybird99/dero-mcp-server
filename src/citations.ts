@@ -2,7 +2,7 @@
  * Citation helper for DERO MCP tool responses.
  *
  * The wedge for this server is the combination of live chain reads and the
- * in-process bundled docs index (145+ pages across derod, tela, hologram,
+ * in-process bundled docs index (154 pages across derod, tela, hologram,
  * deropay). Citations let agents link their responses back to authoritative
  * docs without a second tool call, and they give downstream composite tools
  * a uniform shape to compose.

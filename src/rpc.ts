@@ -61,7 +61,43 @@ export async function deroJsonRpc<T = unknown>(
   }
 }
 
+function parseDaemonUrl(value: string): URL {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    throw new Error('DERO daemon URL must be an absolute http(s) URL')
+  }
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new Error('DERO daemon URL must use http or https')
+  }
+  if (url.username || url.password) {
+    throw new Error('DERO daemon URL must not include userinfo credentials')
+  }
+  return url
+}
+
+export function normalizeDaemonBaseUrl(value: string): string {
+  const url = parseDaemonUrl(value)
+  url.hash = ''
+  url.pathname = url.pathname.replace(/\/+$/, '')
+  if (url.pathname.endsWith('/json_rpc')) {
+    url.pathname = url.pathname.slice(0, -'/json_rpc'.length)
+  }
+  return url.toString()
+}
+
+export function redactDaemonUrl(value: string): string {
+  const url = parseDaemonUrl(value)
+  url.search = ''
+  url.hash = ''
+  return url.toString().replace(/\/$/, '')
+}
+
 export function jsonRpcEndpoint(baseUrl: string): string {
-  const trimmed = baseUrl.replace(/\/$/, '')
-  return trimmed.endsWith('/json_rpc') ? trimmed : `${trimmed}/json_rpc`
+  const url = parseDaemonUrl(baseUrl)
+  url.hash = ''
+  const pathname = url.pathname.replace(/\/+$/, '')
+  url.pathname = pathname.endsWith('/json_rpc') ? pathname : `${pathname}/json_rpc`
+  return url.toString()
 }

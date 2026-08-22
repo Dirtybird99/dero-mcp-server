@@ -15,12 +15,19 @@ async function runStdio(): Promise<void> {
 
   process.stderr.write(`[dero-mcp-server] stdio · ${describeDaemonResolution(resolution)}\n`)
 
-  serveStdio(() => createDeroMcpServer(resolution.base), {
-    legacy: 'serve',
-    onerror: (err) => {
-      process.stderr.write(`[dero-mcp-server] stdio handler error: ${err.message}\n`)
+  serveStdio(
+    ({ era }) =>
+      createDeroMcpServer(resolution.base, {
+        daemonSource: resolution.source,
+        era,
+      }),
+    {
+      legacy: 'serve',
+      onerror: (err) => {
+        process.stderr.write(`[dero-mcp-server] stdio handler error: ${err.message}\n`)
+      },
     },
-  })
+  )
 }
 
 async function main(): Promise<void> {

@@ -58,7 +58,7 @@ Positioning means nothing without the engineering to back it up. This server is 
 - **No request logs.** Stateless by design. The server holds no per-request state across calls.
 - **No telemetry.** The server does not phone home — not on install, not on update, not on use.
 - **No tracking.** No analytics, no cookies, no third-party fetches embedded in tool responses.
-- **Header hygiene.** The reference Caddyfile in [`deploy/`](./deploy/) strips `X-Forwarded-For` before requests reach the server.
+- **Header hygiene.** The reference Caddyfile in [`deploy/`](https://github.com/Dirtybird99/dero-mcp-server/tree/main/deploy) strips `X-Forwarded-For` before requests reach the server.
 - **Constant-time auth.** The bearer-token comparison for the HTTP transport is constant-time to avoid timing side-channels.
 - **Read-only by design.** The server cannot move funds, broadcast transactions, or invoke contracts. The write surface is excluded at the tool registration layer — there is no flag to flip.
 
@@ -88,7 +88,8 @@ DERO is one of the few currently-operating production blockchains that ships nat
 ## See also
 
 - [`README.md`](./README.md) — installation, quick start, and a tour of what you can ask
-- [`SKILL.md`](./SKILL.md) — per-tool runbook for agents using this server
-- [`deploy/README.md`](./deploy/README.md) — self-hosted streamable-HTTP reference deployment with Caddy + auto-TLS
+- [`skills/`](./skills/) — focused DERO, TELA, Hologram, and DeroPay workflow runbooks exposed through Skills over MCP
+- [`SKILL.md`](./SKILL.md) — compatibility index for clients that expect a root skill file
+- [`deploy/README.md`](https://github.com/Dirtybird99/dero-mcp-server/blob/main/deploy/README.md) — self-hosted streamable-HTTP reference deployment with Caddy + auto-TLS
 - [derod.org/privacy](https://derod.org/privacy) — the chain-level privacy primitives this server inherits its posture from
 - [DERO Foundation](https://github.com/deroproject/derohe) — the upstream chain implementation

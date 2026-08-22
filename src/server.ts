@@ -1,6 +1,6 @@
-import { McpServer } from '@modelcontextprotocol/server'
+import { INVALID_PARAMS, McpServer, ProtocolError } from '@modelcontextprotocol/server'
 import { z } from 'zod'
-import { deroJsonRpc, jsonRpcEndpoint } from './rpc.js'
+import { deroJsonRpc, jsonRpcEndpoint, redactDaemonUrl } from './rpc.js'
 import {
   DERO_DOC_PRODUCTS,
   getDeroDocPage,
@@ -54,6 +54,13 @@ import {
   deroTelaListApps,
   deroTelaListAppsInputSchema,
 } from './composites/tela-discovery.js'
+import {
+  DERO_SKILLS,
+  DERO_SKILL_NAMES,
+  DERO_SKILL_URIS,
+  type DeroSkill,
+} from './skills.js'
+import { daemonPrivacyNotice, type DaemonSource } from './daemon-base.js'
 
 const scRpcArgSchema = z.object({
   name: z.string(),
@@ -76,6 +83,7 @@ export const DERO_RESOURCE_URIS = [
   'dero://mcp/safety-boundary',
   'dero://mcp/example-flows',
   'dero://mcp/composites',
+  ...DERO_SKILL_URIS,
 ] as const
 
 export const DERO_PROMPT_NAMES = [
@@ -87,6 +95,50 @@ export const DERO_PROMPT_NAMES = [
 ] as const
 
 const deroDocProductSchema = z.enum(DERO_DOC_PRODUCTS)
+const deroSkillNameSchema = z.enum(DERO_SKILL_NAMES)
+const protocolMetaSchema = z.record(z.string(), z.json()).optional()
+const skillFrontmatterSchema = z
+  .object({ name: deroSkillNameSchema, description: z.string().min(1) })
+  .strict()
+const skillResourceSchema = z
+  .object({
+    uri: z.string(),
+    digest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+    size: z.number().int().nonnegative(),
+  })
+  .strict()
+const skillEntrySchema = z
+  .object({
+    uri: z.string(),
+    frontmatter: skillFrontmatterSchema,
+    resources: z.array(skillResourceSchema),
+  })
+  .strict()
+const listSkillsParamsSchema = z
+  .object({ cursor: z.string().min(1).optional(), _meta: protocolMetaSchema })
+  .strict()
+const legacyListSkillsResultSchema = z
+  .object({
+    resultType: z.literal('complete'),
+    skills: z.array(skillEntrySchema),
+    _meta: protocolMetaSchema,
+  })
+  .strict()
+const modernListSkillsResultSchema = legacyListSkillsResultSchema.extend({
+  ttlMs: z.literal(300_000),
+  cacheScope: z.literal('public'),
+})
+const getSkillParamsSchema = z
+  .object({ uri: z.string().min(1), _meta: protocolMetaSchema })
+  .strict()
+const getSkillResultSchema = z
+  .object({ resultType: z.literal('complete'), skill: skillEntrySchema, _meta: protocolMetaSchema })
+  .strict()
+
+function skillEntry(skill: DeroSkill) {
+  const { uri, frontmatter, resources } = skill
+  return { uri, frontmatter, resources }
+}
 
 function toolText(data: unknown) {
   return {
@@ -320,14 +372,68 @@ function readOnly<T extends Record<string, unknown>>(
   return { ...config, annotations: READ_ONLY_ANNOTATIONS }
 }
 
-export function createDeroMcpServer(daemonBaseUrl: string): McpServer {
+export type DeroMcpServerOptions = {
+  daemonSource?: DaemonSource
+  era?: 'legacy' | 'modern'
+}
+
+export function createDeroMcpServer(
+  daemonBaseUrl: string,
+  { daemonSource = 'env', era = 'legacy' }: DeroMcpServerOptions = {},
+): McpServer {
   const endpoint = jsonRpcEndpoint(daemonBaseUrl)
+  const displayEndpoint = redactDaemonUrl(endpoint)
+  const privacyNotice = daemonPrivacyNotice({ base: daemonBaseUrl, source: daemonSource })
   const rpc = async <T>(method: string, params?: unknown) =>
     deroJsonRpc<T>(endpoint, method, params)
-  const server = new McpServer({
-    name: 'dero-daemon-mcp',
-    version: '0.6.0',
+  const server = new McpServer(
+    {
+      name: 'dero-daemon-mcp',
+      version: '0.7.0',
+    },
+    {
+      instructions: [
+        `Use the matching product skill when a task needs a workflow: ${DERO_SKILL_URIS.join(', ')}.`,
+        'Clients without native skills support can call read_dero_skill. This server is read-only.',
+        ...(daemonSource === 'public' ? [`Privacy notice: ${privacyNotice}`] : []),
+      ].join(' '),
+    },
+  )
+
+  server.server.registerCapabilities({
+    extensions: { 'io.modelcontextprotocol/skills': {} },
   })
+  server.server.setRequestHandler(
+    'skills/list',
+    {
+      params: listSkillsParamsSchema,
+      result:
+        era === 'modern' ? modernListSkillsResultSchema : legacyListSkillsResultSchema,
+    },
+    ({ cursor }) => {
+      if (cursor !== undefined) {
+        throw new ProtocolError(INVALID_PARAMS, 'This skill catalog does not issue cursors', {
+          cursor,
+        })
+      }
+      return {
+        resultType: 'complete' as const,
+        skills: DERO_SKILLS.map(skillEntry),
+        ...(era === 'modern' ? { ttlMs: 300_000 as const, cacheScope: 'public' as const } : {}),
+      }
+    },
+  )
+  server.server.setRequestHandler(
+    'skills/get',
+    { params: getSkillParamsSchema, result: getSkillResultSchema },
+    ({ uri }) => {
+      const skill = DERO_SKILLS.find((candidate) => candidate.uri === uri)
+      if (!skill) {
+        throw new ProtocolError(INVALID_PARAMS, `Unknown DERO skill URI: ${uri}`, { uri })
+      }
+      return { resultType: 'complete' as const, skill: skillEntry(skill) }
+    },
+  )
 
   server.registerTool(
     'dero_daemon_ping',
@@ -895,11 +1001,36 @@ export function createDeroMcpServer(daemonBaseUrl: string): McpServer {
     ),
   )
 
+  server.registerTool(
+    'read_dero_skill',
+    readOnly({
+      description: TOOL_DESCRIPTIONS.read_dero_skill,
+      inputSchema: z.object({
+        name: deroSkillNameSchema.describe('Product workflow to load'),
+      }).strict(),
+    }),
+    async ({ name }) => toolText(DERO_SKILLS.find((skill) => skill.name === name)!.content),
+  )
+
+  for (const skill of DERO_SKILLS) {
+    server.registerResource(
+      skill.name,
+      skill.uri,
+      {
+        description: skill.frontmatter.description,
+        mimeType: 'text/markdown',
+      },
+      async (uri) => ({
+        contents: [{ uri: uri.toString(), mimeType: 'text/markdown', text: skill.content }],
+      }),
+    )
+  }
+
   server.registerResource(
     'dero_mcp_server_info',
     'dero://mcp/server-info',
     {
-      description: 'Server metadata, tool list, resource list, and prompt names.',
+      description: 'Server metadata and tool, resource, prompt, and skill lists.',
       mimeType: 'application/json',
     },
     async (uri) => ({
@@ -910,15 +1041,19 @@ export function createDeroMcpServer(daemonBaseUrl: string): McpServer {
           text: JSON.stringify(
             {
               name: 'dero-daemon-mcp',
-              version: '0.6.0',
+              version: '0.7.0',
               mode: 'read-only',
-              endpoint: endpoint,
+              endpoint: displayEndpoint,
+              daemon_source: daemonSource,
+              privacy_notice: privacyNotice,
               docs_products: DERO_DOC_PRODUCTS,
               docs_delivery: 'bundled-index',
               docs_dev_override_env: 'DERO_DOCS_ROOT',
               tools: DERO_TOOL_NAMES,
               resources: DERO_RESOURCE_URIS,
               prompts: DERO_PROMPT_NAMES,
+              skills: DERO_SKILL_URIS,
+              skills_extension: 'io.modelcontextprotocol/skills',
             },
             null,
             2,
@@ -1057,7 +1192,7 @@ export function createDeroMcpServer(daemonBaseUrl: string): McpServer {
                   name: 'recommend_docs_path',
                   replaces: ['4x parallel dero_docs_search calls + manual ranking'],
                   when_to_call: 'User has a natural-language intent ("deploy a TELA app", "estimate gas") and needs to know which doc page to read. Bias-not-filter on product_hint.',
-                  inputs: { intent: 'short natural-language string', product_hint: 'optional derod | tela | hologram | deropay', limit_per_product: 'optional number, default 2' },
+                  inputs: { intent: 'short natural-language string', product_hint: 'optional derod | tela | hologram | deropay', limit_per_product: 'optional number, default 4' },
                   output_highlights: ['recommended[] with score/boosted_score/rationale', 'summary_by_product', 'related_docs'],
                   error_codes: ['NO_DOCS_MATCH'],
                 },
@@ -1108,7 +1243,7 @@ export function createDeroMcpServer(daemonBaseUrl: string): McpServer {
                   replaces: ['dero_get_sc + manual comment-block extraction from the contract code'],
                   when_to_call: 'User wants the actual file content (HTML/CSS/JS) a TELA-DOC-1 stores. Get DOC SCIDs from tela_inspect on an INDEX first.',
                   inputs: { scid: '64-char hex DOC SCID', offset: 'optional number (paginate large files)', topoheight: 'optional number' },
-                  output_highlights: ['content (60k-char chunk; paginate via next_offset; .gz transparently decompressed)', 'filename, doc_type, sub_dir', 'compressed/decompressed flags', 'signature (presence only, not verified)', 'related_docs'],
+                  output_highlights: ['content (up to 60,000 UTF-8 bytes; paginate via next_offset; .gz transparently decompressed)', 'filename, doc_type, sub_dir', 'compressed/decompressed/decompression_limited flags', 'signature (presence only, not verified)', 'related_docs'],
                   error_codes: ['INVALID_INPUT (SCID is not a TELA-DOC-1; hint points to tela_inspect)', 'RPC_UNREACHABLE'],
                 },
                 {

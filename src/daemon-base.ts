@@ -1,4 +1,9 @@
-import { deroJsonRpc, jsonRpcEndpoint } from './rpc.js'
+import {
+  deroJsonRpc,
+  jsonRpcEndpoint,
+  normalizeDaemonBaseUrl,
+  redactDaemonUrl,
+} from './rpc.js'
 
 /**
  * Baked-in third-party public mainnet daemon. Last-resort fallback so the
@@ -17,8 +22,17 @@ export type DaemonResolution = {
   source: DaemonSource
 }
 
-function stripJsonRpc(url: string): string {
-  return url.replace(/\/json_rpc\/?$/, '').replace(/\/+$/, '')
+/** Privacy impact of the selected daemon, suitable for MCP metadata and health checks. */
+export function daemonPrivacyNotice({ base, source }: DaemonResolution): string {
+  const displayBase = redactDaemonUrl(base)
+  switch (source) {
+    case 'local':
+      return 'DERO queries stay on the detected local daemon.'
+    case 'env':
+      return `DERO queries are sent to the configured daemon at ${displayBase}; its operator can observe request content, timing, and this MCP server's source network address.`
+    case 'public':
+      return `DERO queries are sent to the third-party public fallback at ${displayBase}; its operator can observe request content, timing, and this MCP server's source network address. Run a local derod or set DERO_DAEMON_URL to an endpoint you trust for better privacy.`
+  }
 }
 
 /**
@@ -59,7 +73,7 @@ async function isDeroDaemon(base: string, timeoutMs = 1500): Promise<boolean> {
  */
 export async function resolveDaemonBase(): Promise<DaemonResolution> {
   const fromEnv = process.env.DERO_DAEMON_URL?.trim()
-  if (fromEnv) return { base: stripJsonRpc(fromEnv), source: 'env' }
+  if (fromEnv) return { base: normalizeDaemonBaseUrl(fromEnv), source: 'env' }
 
   if (await isDeroDaemon(LOCAL_DAEMON_BASE)) {
     return { base: LOCAL_DAEMON_BASE, source: 'local' }
@@ -69,12 +83,13 @@ export async function resolveDaemonBase(): Promise<DaemonResolution> {
 
 /** One-line, human-readable description of a resolution for startup logs. */
 export function describeDaemonResolution({ base, source }: DaemonResolution): string {
+  const displayBase = redactDaemonUrl(base)
   switch (source) {
     case 'env':
-      return `daemon: ${base} (from DERO_DAEMON_URL)`
+      return `daemon: ${displayBase} (from DERO_DAEMON_URL)`
     case 'local':
-      return `daemon: ${base} (local node detected)`
+      return `daemon: ${displayBase} (local node detected)`
     case 'public':
-      return `daemon: ${base} (no local node found — public fallback; run your own derod for privacy)`
+      return `daemon: ${displayBase} (no local node found — public fallback; run your own derod for privacy)`
   }
 }

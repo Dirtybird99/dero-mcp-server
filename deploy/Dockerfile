@@ -10,6 +10,8 @@
 #   docker run --rm -p 8787:8787 \
 #     -e DERO_DAEMON_URL=http://your-daemon:10102 \
 #     -e DERO_MCP_HTTP_HOST=0.0.0.0 \
+#     -e DERO_MCP_ALLOWED_HOSTS=mcp.example.com \
+#     -e DERO_MCP_ALLOWED_ORIGINS=app.example.com \
 #     dero-mcp-server:${VERSION}
 
 FROM node:22-alpine

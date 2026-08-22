@@ -1,366 +1,198 @@
-# DERO MCP server
+# DERO MCP Server
 
-> **A read-only Model Context Protocol server for the DERO privacy blockchain** — a private-by-default Layer 1 with encrypted balances, private smart contracts (DVM-BASIC), and no public transaction graph. 21 daemon primitives + 12 composite tools (including TELA on-chain app inspection and dURL→SCID discovery), with a bundled documentation index spanning derod, tela, hologram, and deropay.
+![DERO MCP Server — read-only DERO chain and documentation access for AI assistants.](docs/assets/dero-mcp-hero.webp)
 
-[![MCP Registry](https://img.shields.io/badge/MCP-io.github.DHEBP%2Fdero--mcp--server-blue)](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.DHEBP/dero-mcp-server)
-[![CI](https://github.com/DHEBP/dero-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/DHEBP/dero-mcp-server/actions/workflows/ci.yml)
-[![dero-mcp-server MCP server](https://glama.ai/mcp/servers/DHEBP/dero-mcp-server/badges/card.svg)](https://glama.ai/mcp/servers/DHEBP/dero-mcp-server)
+[![npm](https://img.shields.io/npm/v/dero-mcp-server?label=npm)](https://www.npmjs.com/package/dero-mcp-server)
+[![Fork CI](https://github.com/Dirtybird99/dero-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/Dirtybird99/dero-mcp-server/actions/workflows/ci.yml)
+[![MCP Registry](https://img.shields.io/badge/MCP%20Registry-io.github.DHEBP%2Fdero--mcp--server-2f86e8)](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.DHEBP/dero-mcp-server)
+[![MIT](https://img.shields.io/badge/license-MIT-37c8f0)](LICENSE)
 
-**Registry listing:** `io.github.DHEBP/dero-mcp-server` · **Version:** `0.6.0` · **Transports:** `stdio` (default, npm package) · `streamable-http` (`--http`, for self-hosting)
+A read-only [Model Context Protocol](https://modelcontextprotocol.io) server for querying DERO chain state, analyzing smart contracts and transactions, searching bundled documentation, and following focused product runbooks.
 
----
+**Source:** [Dirtybird99/dero-mcp-server](https://github.com/Dirtybird99/dero-mcp-server) · **Upstream:** [DHEBP/dero-mcp-server](https://github.com/DHEBP/dero-mcp-server) · **Version:** `0.7.0` source preview
 
-## What is an MCP server
+> [!IMPORTANT]
+> As checked on **2026-08-22**, the published npm package and official MCP Registry entry were `0.6.0`. The `0.7.0` source in this fork adds packaged skills, one compatibility tool, four skill resources, and HTTP/daemon-URL hardening. The install example below is pinned to that exact published snapshot.
 
-An **MCP server** (Model Context Protocol) is a small program that gives your AI assistant — Claude Desktop, Cursor, OpenCode, ChatGPT with Custom Connectors — the ability to call specific tools on your behalf. Instead of the AI *talking* about DERO from memory, it can actually look things up: fetch a block, read a contract, search the docs, trace a transaction, estimate a deploy.
+[Quickstart](#quickstart) · [Capabilities](#what-it-does) · [Skills](#skills-over-mcp) · [Safety](#safety-and-privacy) · [HTTP](#self-hosted-http) · [Development](#development)
 
-You install it once and point your AI host at it. From then on, every DERO question you ask in chat hits live chain data and the bundled docs corpus — not the AI's training cutoff.
+## Release status
 
-## What is DERO
+**Snapshot checked:** `2026-08-22`. At that time, the npm and Registry coordinates retained the upstream DHEBP identity, and this Dirtybird99 fork had not published a separate package or Registry namespace.
 
-If you're new to DERO: it's a privacy-first L1 blockchain — often described as a **private alternative to Ethereum** for builders who want smart contracts without a transparent ledger, or as a **Monero alternative** for users who want account-based privacy with native programmability instead of UTXO-only payments. Homomorphically encrypted balances. Ring signatures hide senders. Zero-knowledge range proofs (Bulletproofs) hide amounts. There is no public transaction graph. The current mainnet is **DERO Stargate**.
+| Surface | Published npm / Registry `0.6.0` snapshot | Fork source `0.7.0` |
+|---|---:|---:|
+| **Tools (34)** in v0.7 | 33 | 34 |
+| **Resources (8)** in v0.7 | 4 | 8 |
+| **Prompts (5)** in v0.7 | 5 | 5 |
+| **Skills (4)** in v0.7 | 0 | 4 |
 
-Full docs: [derod.org](https://derod.org)
+The v0.7 tool total is 17 daemon RPC reads + 1 local proof decoder + 3 documentation tools + 12 composites + the `read_dero_skill` compatibility tool. Its eight resources are four server resources and four canonical `skill://<name>/SKILL.md` files.
 
-## About this server
+## Quickstart
 
-[Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that exposes **read-only and analysis** calls against a DERO Stargate **daemon** JSON-RPC endpoint. Ships as a stdio process for local MCP hosts (Claude Desktop, Cursor, OpenCode) or in **streamable-HTTP** mode behind a domain (e.g. `mcp.derod.org`) for ChatGPT Custom Connectors, Cursor hosted mode, and any agent that needs a remote URL. See [`deploy/`](./deploy/) for a reference self-hosted deployment.
+You need Node.js 20+ and an MCP client that can launch a local subprocess. A local DERO daemon is optional but recommended for privacy and reliability.
 
-## Quick start
+### Exact published snapshot (`0.6.0`, checked 2026-08-22)
 
-Get a working DERO MCP connection in under 5 minutes.
-
-### What you need
-
-- **Node.js 20+** ([install](https://nodejs.org)) — verify with `node --version`.
-- **An MCP host** — Claude Desktop, Cursor, OpenCode, or ChatGPT with Custom Connectors. This walkthrough uses Claude Desktop; the JSON config below works identically in Cursor and OpenCode.
-- **Optional:** a local DERO daemon. If one is running on `127.0.0.1:10102`, the server detects and uses it automatically; otherwise it falls back to a public RPC, so it works with zero setup. Run your own for production — [how to](https://derod.org/basics/running-a-node.md).
-
-### 1. Open your MCP host's config
-
-| Host | Where |
-|---|---|
-| Claude Desktop (macOS) | `~/Library/Application Support/Claude/claude_desktop_config.json` |
-| Claude Desktop (Windows) | `%APPDATA%\Claude\claude_desktop_config.json` |
-| Cursor | Settings → MCP → Add Server |
-| OpenCode | Settings → MCP → Add Server |
-| Codex CLI / IDE | `codex mcp add` or `~/.codex/config.toml` |
-
-Create the file if it doesn't exist.
-
-### 2. Add the DERO MCP server
+Add this subprocess descriptor to your client's MCP configuration:
 
 ```json
 {
   "mcpServers": {
-    "dero-daemon": {
+    "dero": {
       "command": "npx",
-      "args": ["-y", "dero-mcp-server"]
+      "args": ["-y", "dero-mcp-server@0.6.0"]
     }
   }
 }
 ```
 
-This uses `npx` to fetch and run the latest published version — no manual install or build required.
-
-The server **auto-detects a local node** at `127.0.0.1:10102`. To pin a specific daemon (custom port or a remote URL), add an `env` block:
+If your daemon is not at the default local address, add an environment override:
 
 ```json
 "env": { "DERO_DAEMON_URL": "http://127.0.0.1:10102" }
 ```
 
-### 3. Restart your MCP host
+Restart the client, then ask:
 
-Fully quit and reopen — not just refresh. MCP servers load at startup.
+> What's the current DERO chain height?
 
-### 4. Verify it works
+With no override, the server first checks `127.0.0.1:10102` and otherwise uses its disclosed third-party public fallback. See [Safety and privacy](#safety-and-privacy) before relying on that fallback.
 
-In a new chat:
+### Build the v0.7 source preview
 
-> *"What's the current DERO chain height?"*
-
-A number back means you're connected. If you see an error, confirm the config file path is correct and your host was fully restarted (not just refreshed).
-
-Once it's working, jump to [Try a prompt](#try-a-prompt) for a full tour.
-
----
-
-## What you can do with it
-
-Once installed, your MCP host can do all of these on your behalf — in natural language, no JSON-RPC needed:
-
-- **Inspect the chain** — blocks, transactions, mempool, encrypted balances, registered names
-- **Analyze smart contracts** — read code and state, classify the pattern, estimate deploy gas, pull relevant DVM-BASIC docs in one call
-- **Trace transactions** — look up any hash, confirm inclusion, classify the kind (transfer / SC install / SC call)
-- **Explore the on-chain web (TELA)** — discover apps by name (`vault.tela` → SCID), browse what's deployed, inspect an app's manifest and files, and read the actual on-chain HTML/JS/CSS — no separate indexer to run
-- **Search the docs** — across all four DERO sites (derod, tela, hologram, deropay)
-- **Run composite analyses** — chain health, claim audits, docs path recommendations, deploy pre-flights — each returns curated DERO docs citations alongside the data
-
-## Try a prompt
-
-After installing and restarting your MCP host, paste any of these. Start simple and work up.
-
-### Basic
-
-Single-tool questions that verify the install and exercise live queries.
-
-> *"What's the current DERO chain height?"*
->
-> *"Resolve the DERO name 'engram' to an address."*
->
-> *"Find the documentation page on Bulletproofs."*
->
-> *"What does the smart contract at SCID 0000…0001 do?"*
-
-### Intermediate
-
-Composite tools that fan out into multiple primitives and return a synthesized answer with citations.
-
-> *"Explain the smart contract at SCID 0000000000000000000000000000000000000000000000000000000000000001 — what it does, its functions, and which DVM-BASIC docs are relevant."*
->
-> *"Trace transaction <hash> with full context — confirmation, classification, and what it touched."*
->
-> *"What's the right reading path for someone new to DERO smart contracts who wants to deploy a DVM-BASIC contract?"*
->
-> *"Estimate the gas cost to deploy this DVM source: <paste contract>"*
-
-### TELA — the decentralized web on DERO
-
-TELA apps are full web apps (HTML/CSS/JS) deployed entirely on-chain. The server discovers and reads them with no external indexer — the first discovery query runs a one-time ~15s scan, then it's instant.
-
-> *"What's the SCID for vault.tela?"*
->
-> *"What TELA apps exist on DERO? Show me a few."*
->
-> *"Inspect the TELA app at SCID <scid> — what is it, who made it, and what files does it have?"*
->
-> *"Show me the actual HTML of that app's index.html."*
-
-For multi-step agent recipes, per-tool guidance, error contract, and the composite-first rule, see [`SKILL.md`](./SKILL.md).
-
-**Not included (by design):** wallet RPC (`transfer`, `scinvoke`), `DERO.SendRawTransaction`, `DERO.SubmitBlock`. Those can move funds or consensus data; add them only with explicit user consent and a locked-down setup.
-
-## See also
-
-- [`SKILL.md`](./SKILL.md) — per-tool agent runbook: composite-first rule, structured error contract, citation rules, agent-loop recipes, port reference.
-- [`POSITIONING.md`](./POSITIONING.md) — who DERO MCP is for, who it isn't, comparison vs ACP / Stripe / Crossmint / Skyfire, privacy posture.
-
-## Requirements
-
-- Node.js **20+**
-- A reachable DERO daemon with RPC enabled (local node or your own remote URL).
-
-## Install & build
+After this v0.7 update is merged into the fork's `main` branch:
 
 ```bash
+git clone https://github.com/Dirtybird99/dero-mcp-server.git
 cd dero-mcp-server
-npm install
+npm ci
 npm run build
 ```
 
-Run (auto-detects a local node at `127.0.0.1:10102`, else public fallback, when `DERO_DAEMON_URL` is unset):
-
-```bash
-node dist/index.js
-```
-
-Or set an explicit URL (e.g. your local daemon):
-
-```bash
-DERO_DAEMON_URL=http://127.0.0.1:10102 node dist/index.js
-```
-
-Daemon resolution is **local-first**: with `DERO_DAEMON_URL` unset, the server uses a local node at `127.0.0.1:10102` if it answers, else the baked-in **third-party** public RPC (`82.65.143.182:10102`). Prefer your own node for privacy.
-
-Strip a trailing `/json_rpc` if you paste a full JSON-RPC URL — this server appends `/json_rpc`.
-
-## HTTP mode (self-hosted)
-
-For clients that can't launch a local subprocess — ChatGPT Custom Connectors, Cursor hosted mode, n8n / Zapier integrations — run the server in streamable-HTTP mode and put it behind your own domain:
-
-```bash
-DERO_MCP_AUTH_TOKEN=$(openssl rand -base64 48) \
-  dero-mcp-server --http
-# [dero-mcp-server] HTTP listening on 127.0.0.1:8787 (POST /mcp · GET /health)
-```
-
-Both stdio and HTTP serve MCP `2026-07-28` and retain compatibility with 2025-era clients. HTTP exchanges are stateless and do not issue `Mcp-Session-Id`; 2026 clients negotiate through `server/discover`.
-
-| Variable | Default | Description |
-|---|---|---|
-| `DERO_MCP_HTTP` | unset | Set to `1` (or pass `--http`) to start in HTTP mode. |
-| `DERO_MCP_HTTP_PORT` | `8787` | Listen port. |
-| `DERO_MCP_HTTP_HOST` | `127.0.0.1` | Listen address. Use `0.0.0.0` to bind publicly (do not without auth + TLS upstream). |
-| `DERO_MCP_AUTH_TOKEN` | unset | If set, every `/mcp` request must carry `Authorization: Bearer <token>`. Constant-time compared. |
-
-For a turnkey deploy with Caddy + auto-TLS + Docker Compose, see [`deploy/README.md`](./deploy/README.md). It's a self-hosting reference for `mcp.derod.org`-style instances — anyone can fork and run their own. The public default daemon behind a hosted instance may use an older `GetInfo` schedule formula than CalcSupply; `verify_supply` still treats the offline schedule number as authoritative (see [Verify the Supply](https://derod.org/integrity/verify-the-supply)).
-
-The stdio transport (below) and the HTTP transport share the same underlying server factory, so the tool surface, response shapes, and error codes are identical across both.
-
-## Claude Desktop (same pattern for OpenCode and Cursor)
-
-Add to `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`):
+Point the same MCP configuration at the built entry point:
 
 ```json
 {
   "mcpServers": {
-    "dero-daemon": {
+    "dero": {
       "command": "node",
-      "args": ["/ABSOLUTE/PATH/TO/dero-mcp-server/dist/index.js"]
+      "args": ["/absolute/path/to/dero-mcp-server/dist/index.js"]
     }
   }
 }
 ```
 
-Optional: add `"env": { "DERO_DAEMON_URL": "http://127.0.0.1:10102" }` to pin a specific daemon. Not needed if your local node uses the default port — the server auto-detects it.
+Clients that cannot launch a subprocess need a self-hosted streamable-HTTP endpoint instead.
 
-Restart Claude Desktop (or your OpenCode/Cursor host).
+## What it does
 
-## Cursor (or OpenCode)
+| Area | Available reads and analyses |
+|---|---|
+| Chain state | Health, height, blocks, mempool, transactions, encrypted balances, and names |
+| Smart contracts | Source and state inspection, pattern summaries, deploy-gas estimates, and documentation context |
+| Transactions | Inclusion and kind classification, contract-install context, and proof decoding |
+| TELA | dURL discovery, app manifests, file lists, and on-chain HTML/CSS/JavaScript content |
+| Documentation | Search and retrieval across the bundled derod, TELA, Hologram, and DeroPay corpus |
+| Composite analysis | Chain diagnosis, claim audits, supply verification, reading paths, and deploy preflight |
 
-In **Cursor Settings → MCP** (or OpenCode MCP settings), add a server that runs the same `command` / `args` / `env` as above.
+The v0.7 source ships a 154-page offline documentation index. Chain tools still query the selected daemon; documentation and skill reads do not need a network request.
 
-## OpenCode
+Try prompts such as:
 
-In **OpenCode MCP settings**, add a server with the same `command` / `args` / `env` as above.
+- “Is this daemon healthy and synced?”
+- “Explain the contract at SCID `<scid>` and cite the relevant DVM documentation.”
+- “Trace transaction `<hash>` with confirmation and contract context.”
+- “Find a reading path for deploying a DVM-BASIC contract.”
+- “List a few TELA apps, then inspect one manifest and its files.”
+- “Load the DeroPay skill and guide me through a merchant integration.”
 
-## Codex
+![A read request flows from an MCP client through the DERO MCP server to live daemon state or bundled documentation and skills.](docs/assets/dero-mcp-read-flow.svg)
 
-Codex supports DERO MCP as either a local stdio server or a streamable-HTTP server. The stdio setup is simplest for local development because Codex launches the server process for each session.
+## Skills over MCP
 
-Add the published npm package with:
+The v0.7 source packages four concise workflow guides:
 
-```bash
-codex mcp add dero-daemon --env DERO_DAEMON_URL=http://127.0.0.1:10102 -- npx -y dero-mcp-server
-```
+| Skill | Use it for |
+|---|---|
+| `dero` | Chain health, transactions, DVM contracts, proofs, and supply verification |
+| `tela` | dURL discovery, app inspection, on-chain files, and TELA development guidance |
+| `hologram` | Hologram browser, wallet, Studio, simulator, and troubleshooting guidance |
+| `deropay` | DeroPay, DeroAuth, checkout, router, escrow, and merchant integrations |
 
-Replace `http://127.0.0.1:10102` with your daemon base URL when using a custom host or port. Do not include `/json_rpc`; this server appends it.
+Clients implementing the draft [Skills-over-MCP proposal (SEP-2640)](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2640) can use `skills/list`, `skills/get`, and the corresponding `skill://<name>/SKILL.md` resource. Other clients can call the read-only `read_dero_skill` tool. Both paths return the same packaged Markdown bytes.
 
-Equivalent `~/.codex/config.toml`:
+[`SKILL.md`](SKILL.md) is a compatibility index for hosts that expect one root file. The canonical files live under [`skills/`](skills/). Reconnect or rescan a client that caches its tool or skill catalog after upgrading.
 
-```toml
-[mcp_servers.dero-daemon]
-command = "npx"
-args = ["-y", "dero-mcp-server"]
+These skills are present in the v0.7 source preview; they were not part of the published npm `0.6.0` snapshot checked on 2026-08-22.
 
-[mcp_servers.dero-daemon.env]
-DERO_DAEMON_URL = "http://127.0.0.1:10102"
-```
+## Safety and privacy
 
-A copyable example lives at [`.codex/config.example.toml`](./.codex/config.example.toml). Rename or copy it to `.codex/config.toml` only when you want a project-scoped Codex config; Codex loads project config only for trusted projects.
+- **Read-only boundary:** the server does not expose wallet RPC, transfers, smart-contract invocation, raw transaction submission, block submission, wallet keys, or seed storage.
+- **Read-only is not anonymous:** the selected daemon can observe the connection and RPC requests it receives. Prefer a daemon you operate.
+- **Local-first fallback:** without `DERO_DAEMON_URL`, the server checks the default local daemon before using a third-party public endpoint. The fallback is convenience, not a privacy guarantee.
+- **Offline knowledge:** bundled documentation and skills are read from the installed package rather than a hosted search service.
+- **Daemon URL handling in v0.7:** HTTP(S) query parameters are preserved for calls, URL userinfo is rejected, a trailing `/json_rpc` is normalized rather than duplicated, and query values are removed from logs and diagnostic disclosures.
+- **Structured failures:** tools return machine-readable error codes, hints, and retry guidance rather than requiring clients to parse arbitrary exception text.
 
-For an already-running streamable-HTTP deployment, add the URL instead:
+DERO protects on-chain values and identities according to its protocol; it does not make a third-party RPC connection invisible. Learn about DERO itself at [derod.org](https://derod.org).
 
-```bash
-codex mcp add dero-daemon --url http://127.0.0.1:8787/mcp
-```
+## Self-hosted HTTP
 
-If the HTTP server requires a bearer token, store the token in an environment variable and add `--bearer-token-env-var DERO_MCP_AUTH_TOKEN`.
+> [!CAUTION]
+> The Host/Origin guards described here are v0.7 source behavior. Do not expose npm v0.6 based on these instructions.
 
-Restart Codex or start a new session, then run `/mcp` to confirm `dero-daemon` is enabled. A simple verification prompt is:
-
-> *"What's the current DERO chain height?"*
-
-## Environment
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DERO_DAEMON_URL` | *(local-first auto-detect)* | Daemon **base** URL (no `/json_rpc` required). Unset → local node at `127.0.0.1:10102` if reachable, else public fallback (`82.65.143.182:10102`). Set to pin a specific endpoint. |
-| `DERO_DOCS_ROOT` | bundled index | Optional dev override: path to a local `dero-docs` clone to index live MDX instead of the shipped bundle. |
-
-## Maintainer: bundled docs
-
-Docs tools read from `data/docs-index.json`, committed in this repo and shipped with the npm package. Rebuild the index when [dero-docs](https://github.com/DHEBP/dero-docs) changes:
-
-```bash
-npm run release:docs-check
-git add data/docs-index.json && git commit -m "Refresh bundled docs index."
-```
-
-Or run **Refresh docs bundle** under [Actions](https://github.com/DHEBP/dero-mcp-server/actions/workflows/refresh-docs-bundle.yml) to open a PR. Pushes to `dero-docs` `main` can trigger that workflow via `repository_dispatch` when `MCP_DOCS_SYNC_TOKEN` is configured on the docs repo.
-
-After merging a bundle update: bump the patch version in `package.json` and `server.json`, then `npm publish --otp=...` and `mcp-publisher publish`.
-
-## Testing
+For clients that need a URL, run the built v0.7 source behind TLS:
 
 ```bash
-# Check daemon connectivity
-npm run doctor
-
-# MCP surface contract checks (tools/resources/prompts + error probe)
-npm run smoke:mcp
-
-# Docs retrieval checks (bundled index — no clone required)
-npm run smoke:docs
-
-# Run flow tests (10 RPC checks)
-npm run test:flows
-
-# Typecheck
-npm run typecheck
+export DERO_MCP_AUTH_TOKEN="$(openssl rand -base64 48)"
+node dist/index.js --http
 ```
 
-Flow tests run against the default public RPC. Set `DERO_DAEMON_URL` to test against your own daemon.
+The MCP endpoint is `/mcp`; health information is available at `/health`. The default listener is loopback-only.
 
-CI runs on every push and PR — see `.github/workflows/ci.yml`.
+| Variable | Default | Purpose |
+|---|---|---|
+| `DERO_DAEMON_URL` | local-first | Pin an HTTP(S) daemon base URL; no `/json_rpc` suffix is required |
+| `DERO_DOCS_ROOT` | bundled index | Development-only local documentation source override |
+| `DERO_MCP_HTTP` | unset | Set to `1` instead of passing `--http` |
+| `DERO_MCP_HTTP_HOST` | `127.0.0.1` | Listen address |
+| `DERO_MCP_HTTP_PORT` | `8787` | Listen port |
+| `DERO_MCP_ALLOWED_HOSTS` | unset | Required for non-loopback binds; comma-separated lowercase hostnames without schemes or ports |
+| `DERO_MCP_ALLOWED_ORIGINS` | empty | Optional lowercase Origin-hostname allowlist; empty rejects requests that present `Origin` |
+| `DERO_MCP_AUTH_TOKEN` | unset | Bearer token required on `/mcp` when configured |
 
-## Official MCP Registry
+Host and Origin checks reduce DNS-rebinding and browser cross-origin risk; they do not replace bearer authentication or TLS. The [`deploy/`](https://github.com/Dirtybird99/dero-mcp-server/tree/main/deploy) reference provides Docker Compose, Caddy, and automatic TLS for a production-style deployment.
 
-Publish flow (maintainers):
+## Development
+
+After completing the [source build](#build-the-v07-source-preview):
 
 ```bash
-mcp-publisher validate
-mcp-publisher login github
-mcp-publisher publish
+# Daemon-independent verification gate
+npm test
+
+# Network-dependent daemon and composite flows
+npm run verify:live
+
+# Isolated pack/install/run check
+npm run smoke:package
 ```
 
-Verify listing:
+The daemon-independent gate covers types, builds, protocol surfaces, documentation, skills, HTTP behavior, package installation, and the production dependency audit. Some package and audit steps can still access npm. Live checks use the configured daemon or the disclosed public fallback.
 
-```bash
-curl "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.DHEBP/dero-mcp-server"
-```
+## Documentation
 
-## MCP Surface
-
-- **Tools (33):** 21 daemon read/analysis primitives + 12 composites, including `verify_supply` (offline CalcSupply), TELA app inspection (`tela_inspect`, `tela_get_doc_content`), TELA discovery (`dero_durl_to_scid`, `dero_tela_list_apps`), and docs retrieval (`dero_docs_search`, `dero_docs_get_page`, `dero_docs_list`)
-- **Resources (4):** `dero://mcp/server-info`, `dero://mcp/safety-boundary`, `dero://mcp/example-flows`, `dero://mcp/composites`
-- **Prompts (5):** `network_health_check`, `inspect_smart_contract`, `trace_transaction`, `find_dero_docs_for_intent`, `estimate_deploy_for_contract`
-
-## Error Contract
-
-When a tool call fails, the server returns a structured error payload in tool content:
-
-```json
-{
-  "ok": false,
-  "tool": "dero_get_sc",
-  "_meta": {
-    "error": {
-      "code": "RPC_UNREACHABLE",
-      "hint": "Confirm daemon is running and reachable, then rerun `npm run doctor`.",
-      "retryable": true,
-      "raw": "fetch failed"
-    }
-  }
-}
-```
-
-Common `code` values:
-
-- `INVALID_INPUT`
-- `RPC_INVALID_PARAMS`
-- `RPC_METHOD_NOT_FOUND`
-- `RPC_HTTP_ERROR`
-- `RPC_UNREACHABLE`
-- `RPC_INVALID_RESPONSE`
-- `TOOL_EXECUTION_ERROR`
-
-## Roadmap
-
-- Optional wallet-RPC tools behind `DERO_ENABLE_WALLET_RPC=1` + separate URL.
-- Stricter typing / OpenAPI-derived tool schemas.
-- TELA-aware contract tooling (INDEX/DOC inspection, on-chain app discovery).
+- [`skills/`](skills/) — canonical DERO, TELA, Hologram, and DeroPay runbooks
+- [`POSITIONING.md`](POSITIONING.md) — audience, alternatives, and product boundaries
+- [`deploy/README.md`](https://github.com/Dirtybird99/dero-mcp-server/blob/main/deploy/README.md) — remote deployment and security posture
+- [`docs/DOCS-BUNDLE-SYNC.md`](https://github.com/Dirtybird99/dero-mcp-server/blob/main/docs/DOCS-BUNDLE-SYNC.md) — bundled documentation provenance and refresh process
+- [`CHANGELOG.md`](https://github.com/Dirtybird99/dero-mcp-server/blob/main/CHANGELOG.md) — release-by-release behavior
+- [`server.json`](https://github.com/Dirtybird99/dero-mcp-server/blob/main/server.json) — MCP Registry descriptor
+- [Dirtybird99 fork issues](https://github.com/Dirtybird99/dero-mcp-server/issues) — bugs and feature requests
+- [DHEBP upstream](https://github.com/DHEBP/dero-mcp-server) — original project and published package identity
 
 ## License
 
-MIT
+[MIT](LICENSE)
